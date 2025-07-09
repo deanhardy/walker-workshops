@@ -1,0 +1,685 @@
+---
+title: "Modern Web Mapping with R, Mapbox, and MapLibre"
+format: 
+  html: 
+    theme: zephyr
+    self-contained: true
+editor: visual
+author: "Kyle Walker"
+date: "July 9, 2025"
+toc: true
+eval: false
+---
+
+## Introduction
+
+Welcome to **Modern Web Mapping with R, Mapbox, and MapLibre**! This tutorial is designed to accompany the live workshop given on July 9th, 2025. Workshop participants can use this as a guide to follow along with the live or recorded content.
+
+Today's workshop is designed to get you up and running with the **mapgl** R package, a package I first released in 2024 that offers R bindings to the [Mapbox GL JS](https://docs.mapbox.com/mapbox-gl-js/guides) and [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) web mapping libraries. You'll learn the basics of the package along with several brand-new features I've written to make your mapping lives easier.
+
+This workshop is *not* an introduction to the R programming language, RStudio, or other technical tools. If you are relatively new to R, I'd recommend using this tutorial and the accompanying script to try out some of these tools, then fill in any gaps with the book [*R for Data Science*](https://r4ds.hadley.nz/), which covers all of the basics.
+
+Use this document, the accompanying R script, or the [companion Posit Cloud environment](https://posit.cloud/content/10584609) (pre-built) to run the code in today's workshop. Please note that Mapbox GL JS is not supported in Quarto when rendering to HTML.
+
+You'll need a few packages to get up and running with this workshop. Most features at the time of this presentation are in the CRAN release of **mapgl**, though there are a couple of brand-new features that are only in the development version.
+
+For the CRAN release of **mapgl**, use `install.packages()`:
+
+```{r}
+install.packages("mapgl")
+```
+
+All other packages needed for this workshop will get picked up as dependencies.
+
+To get the development version of **mapgl**, you can use **pak**:
+
+```{r}
+install.packages("pak")
+
+pak::pak("walkerke/mapgl")
+```
+
+Two features presented in this workshop (the MapTiler geocoder and the download button for the draw control) will require the development version.
+
+## Preface: access tokens and API keys
+
+The two supported libraries in **mapgl**, Mapbox GL JS and MapLibre GL JS, are similar but differ in some important ways. Mapbox GL JS is *commercially licensed*, which means that you will need a Mapbox access token to use Mapbox maps.
+
+I'll provide a Mapbox access token for you to use in today's workshop; please note that this token will be deactivated two weeks after the workshop. Run this line of code:
+
+```{r}
+Sys.setenv(MAPBOX_PUBLIC_TOKEN="pk.eyJ1Ijoia3dhbGtlcnRjdSIsImEiOiJjbWN2NW14NzAwMjIxMnFweGFwbGx6cW43In0.j_CfFOdiRxHQX_TnoSMbtQ")
+```
+
+MapLibre is a project derived from an open-source fork of Mapbox GL JS after it adopted a commercial license. You won't need an access token to use MapLibre, but we will be using features from MapTiler in MapLibre maps today, which do require an API key. You are welcome to use the following API key for today's workshop. Set it with this code:
+
+```{r}
+Sys.setenv(MAPTILER_API_KEY="jTewQ7lRuQvOmsFyYPbg")
+```
+
+# Part 1: Map configuration in mapgl
+
+A major goal of **mapgl** is to make complicated web mapping tasks simpler for R users. In Mapbox GL JS, all you need for an interactive globe is a single line of code, once you've set your access token:
+
+```{r}
+library(mapgl)
+
+mapboxgl()
+```
+
+Mapbox maps default to Mapbox's Standard style.
+
+MapLibre maps are initialized in a similar way with `maplibre()`. MapLibre defaults to the old-school Mercator projection, but can adopt a globe view with the `set_projection()` function.
+
+```{r}
+maplibre() |> 
+  set_projection("globe")
+```
+
+MapLibre maps default to CARTO's Voyager style, which is free to use without an API key. If you want a wider range of basemaps to use in your maps, I recommend MapTiler, which we'll cover in the next section.
+
+### Setting map styles
+
+If you've worked with the R Leaflet package before, **mapgl** delivers maps in a fundamentally different way. Basemaps in Leaflet are based on *raster tiles*, which are pre-rendered images that are dynamically delivered to the browser. Mapbox and MapLibre use *vector tiles*, which are vector datasets that are then dynamically *styled* in the browser.
+
+The basemap style for Mapbox and MapLibre maps can be set with the `style` argument. Mapbox maps support the `mapbox_style()` function to prepare style URLs.
+
+```{r}
+mapboxgl(style = mapbox_style("dark"))
+```
+
+Available Mapbox styles include standard, streets, outdoors, light, dark, satellite, satellite-streets, navigation-day, navigation-night, and standard-satellite.
+
+While `mapbox_style()` can only be used with Mapbox maps, both Mapbox and MapLibre maps support CARTO styles (with `carto_style()`) and MapTiler styles, which are initialized with `maptiler_style()`. MapTiler offers a wide range of styles for you to choose from. Options supported in the package include backdrop, basic, bright, dataviz, hybrid, landscape, ocean, openstreetmap, outdoor, satellite, streets, toner, topo, and winter.
+
+For example, we can use a "winter" style:
+
+```{r}
+maplibre(style = maptiler_style("winter"))
+```
+
+Many MapTiler styles support a `variant` argument as well which allows you to get tailor-made styles for thematic mapping. For example, if you are layering data on top of your map (which we'll do later today), you might want a light, monochrome basemap. We can get that with the code below:
+
+```{r}
+maplibre(style = maptiler_style("streets", variant = "light"))
+```
+
+### Customizing map views and built-in 3D styling
+
+The above examples show default map views, which in both Mapbox and MapLibre default to a zoom of 0 and are centered on Null Island (longitude and latitude of 0). The map initialization functions support a variety of arguments to help you customize your initial map view. You'll commonly use `zoom` for the zoom level; zoom levels can range between 0 (the whole world) and 22 (typically, detail in your backyard). The `center` argument is formatted as `c(longitude, latitude)` - so a length-2 vector with the center coordinates of the map.
+
+You can also specify the map `pitch` - which is the angle of the map tilt - and `bearing`, which is the map's rotation. These options are a great way to visualize the three-dimensional features that are built-in to Mapbox's Standard style.
+
+The Standard style available in Mapbox GL JS includes 3D buildings around the globe - and rendered and textured 3D models for [major buildings and landmarks in 370 cities around the world](https://www.mapbox.com/blog/global-cities-3d-landmarks).
+
+```{r}
+mapboxgl(
+  style = mapbox_style("standard"),
+  center = c(2.3522, 48.8566),  # Paris
+  zoom = 16,
+  pitch = 60,
+  bearing = -17.6
+)
+```
+
+Try adjusting the center to view other major landmarks like the Empire State Building in New York (longitude: -73.9857, latitude: 40.7484) or the Sydney Opera House (longitude: 151.2153, latitude: -33.8568).
+
+If you are more interested in 3D terrain, the Mapbox Standard style has this built in as well! [While you can configure 3D terrain yourself in Mapbox / mapgl](https://www.youtube.com/watch?v=n71qnOQD-d4&t=12s), it's easier to use the "Standard-Satellite" style which does this for you. Let's check out a view of the Himalayas over Kathmandu:
+
+```{r}
+mapboxgl(
+  style = mapbox_style("standard-satellite"),
+  center = c(85.3148, 27.7437),
+  zoom = 11,
+  pitch = 75,
+  bearing = 8
+)
+```
+
+**mapgl** supports animated transitions between map views using functions like `fly_to()`, `ease_to()`, and `jump_to()`. These functions are particularly useful when you want to guide your viewers through different locations on your map. Let's play around with it!
+
+```{r}
+mapboxgl() |> 
+  fly_to(
+    center = c(2.3522, 48.8566),  
+    zoom = 12,
+    duration = 10000,  
+    pitch = 45
+  )
+```
+
+A question many of you may have: how do I figure out the center, zoom, pitch, and bearing to use for their arguments? A handy way to do this is to call `mapboxgl(hash = TRUE)`, then pop out the map from your IDE to a web browser. You'll see the center, zoom, pitch, and bearing in the browser's URL; these will change dynamically as you move around (Ctrl-drag changes the pitch and bearing). Copy those values into your R code and you'll get a custom default view for your map.
+
+### The map configuration
+
+Now that we've learned how to move around the map, let's explore how to change its appearance. Mapbox's Standard style supports dynamic configuration that allows you to modify the appearance of the basemap on the fly. This includes showing or hiding different map features, adjusting the time of day, and more.
+
+Configuration can be set with the `set_config_property()` function, or as lists passed to the `config` argument inside `mapboxgl()`. Here are a few of my favorite configurations.
+
+The `lightPreset` config property allows you to choose the time-of-day preset for your map. You'll notice that `lightPreset` is in camel case rather than the snake case used in the package; those are referring to keyword arguments available in the underlying JS library which **mapgl** aims to make available. Available light presets include "dawn", "day", "dusk", and "night". Let's check out New York City at night:
+
+```{r}
+mapboxgl(
+  style = mapbox_style("standard"),
+  center = c(-74.0060, 40.7128),  # New York
+  zoom = 11,
+  config = list(
+    basemap = list(
+      lightPreset = "night"
+    )
+  )
+) 
+```
+
+Available light presets include "dawn", "day", "dusk", and "night". Try them out!
+
+You can also show or hide various map elements like labels, roads, and buildings using configuration properties. [Take a look at the options here](https://docs.mapbox.com/map-styles/standard/guides/#configuration); they will all follow the same pattern, `basemap = list({property} = {value})`.
+
+One option I've found particularly useful is using monochrome themes with the Standard style. When layering data on a map (which we'll do in just a bit), it's helpful to use a muted basemap, available in classic Mapbox styles like "light" and "dark". With monochrome theming, you can get this along with all of the 3D buildings in the Standard Style. Here's how you do it:
+
+```{r}
+mapboxgl(
+  config = list(
+    basemap = list(
+      theme = "monochrome"
+    )
+  )
+) 
+```
+
+When combined with a "dusk" or "night" light preset, you can get a dark monochrome basemap with the Standard Style as well!
+
+### Adding atmospheric effects
+
+One of the most visually striking features in **mapgl** is the ability to add atmospheric effects to your maps. These effects can help convey weather conditions or simply add visual interest to your maps.
+
+`set_rain()` allows you to set rain over the Standard style.
+
+```{r}
+mapboxgl(
+  center = c(-122.4194, 37.7749), 
+  zoom = 12,
+  pitch = 45
+) |> 
+  set_rain(
+    density = 0.5,
+    intensity = 1,
+    color = "#a8adbc"
+  )
+```
+
+Snow effects work similarly with `set_snow()`. How about a snowy evening over Santa Fe, New Mexico!
+
+```{r}
+# Add snow effect
+mapboxgl(
+  center = c(-105.94036, 35.6869),  # Santa Fe
+  zoom = 16,
+  pitch = 50,
+  config = list(
+    basemap = list(
+      lightPreset = "dusk"
+    )
+  )
+) |> 
+  set_snow(
+    density = 0.8,
+    intensity = 0.5
+  )
+```
+
+# Part 2: Map controls and plugins
+
+Mapbox and MapLibre have a *vast* ecosystem of map controls to help you customize your mapping experiences along with many different user-contributed plugins to enhance the functionality of these maps even more. I've tried to support many of them in **mapgl** and I've built in enhancements in many cases to fit even better within R users' workflows. In this part of the workshop, we'll take a tour of some of my favorites.
+
+### Getting up and running quickly with view functions
+
+Before we get into the use of controls, however, I'll introduce you to a couple new functions you'll find useful. New in **mapgl** are the `mapboxgl_view()` and `maplibre_view()` functions, which allow you to quickly visualize spatial data without writing much code. Let's load some example data, originally from the **eurostat** R package but curated for the purposes of this workshop.
+
+We'll read in a dataset of European regions (available at `data/europe_nuts2.geojson`) and a dataset of European cities with populations of 250,000 or greater (available at `data/europe_cities.geojson`). The regions dataset is a *simple features* dataset of *polygons*, representing areas; the cities dataset is of points, so represented as a single longitude / latitude pair.
+
+```{r}
+library(sf)
+
+# Load European NUTS data (source: eurostat R package)
+europe_nuts <- st_read("data/europe_nuts2.geojson")
+
+# Load city points data (source: SimpleMaps)
+europe_cities <- st_read("data/europe_cities.geojson")
+```
+
+If you've worked with mapping in R before, you're likely familiar with the **mapview** package, which greatly simplifies the process of exploring your data on a Leaflet map. The new `mapboxgl_view()` and `maplibre_view()` functions are designed to bring some of this functionality to **mapgl**.
+
+Just pass the spatial object to a view function to quickly browse your data:
+
+```{r}
+maplibre_view(europe_nuts)
+```
+
+By default, we get a basic map with navy polygons over CARTO's Positron style.
+
+Note from the pop-up on each region that we have information about GDP per capita and unemployment rates in the dataset. With the view functions, creating a choropleth map is incredibly simple:
+
+```{r}
+# Quick choropleth of GDP per capita
+maplibre_view(
+  europe_nuts, 
+  column = "gdp_per_capita"
+)
+```
+
+We get a quick, exploratory map with a legend.
+
+For point data, the function automatically detects the geometry type and creates an appropriate visualization:
+
+```{r}
+maplibre_view(
+  europe_cities,
+  color = "red"
+)
+```
+
+If you want to stack layers, use the `add_view()` function, which allows you to layer multiple datasets on a quick-view map. Also note that supplying the argument `n = 5` converts the map from a continuous palette to a stepped palette.
+
+```{r}
+maplibre_view(europe_nuts, column = "gdp_per_capita", n = 5) |> 
+  add_view(europe_cities, color = "red")
+```
+
+Both `mapboxgl_view()` and `maplibre_view()` allow you to pass through any of the options you learned in the first part of the workshop, so you can configure your basemaps as well.
+
+### Adding controls to a map
+
+**mapgl** supports a wide variety of controls that are built-in to the parent JavaScript libraries. For example, we can initialize a map with a navigation, scale, and fullscreen control, and customize their position and general characteristics.
+
+```{r}
+mapboxgl(
+  center = c(2.3522, 48.8566),
+  zoom = 10
+) |> 
+  add_navigation_control(position = "top-right") |> 
+  add_scale_control(position = "bottom-left", unit = "metric") |> 
+  add_fullscreen_control(position = "top-right")
+```
+
+We'll be focusing more today on controls supported by *plugins* to the JavaScript libraries.
+
+### Geocoding controls
+
+One of the most useful controls is the *geocoder control* which allows you to interactively search for and zoom to locations using external geocoding libraries. Mapbox maps support Mapbox's geocoder, whereas MapLibre maps support both the OSM / Nominatim geocoder as well as the MapTiler geocoder, which is brand-new to the package.
+
+Let's revisit our choropleth map of GDP per capita, then add a MapTiler geocoder to it.
+
+```{r}
+maplibre_view(europe_nuts, column = "gdp_per_capita") |> 
+  add_geocoder_control(provider = "maptiler")
+```
+
+The MapTiler geocoder is excellent; you can search for addresses *as well as* places. Addresses or points of interest will be identified by a marker (notice the preview marker when you hover over different selections; places will highlight the actual boundary of that place.
+
+The geocoder also supports [a wide range of options](https://docs.maptiler.com/sdk-js/modules/geocoding/api/api-reference/), such as language and ability to customize the autocomplete. Particularly useful is the ability to limit results to a specific country when you're developing an app that focuses on a location.
+
+### Draw controls
+
+Draw controls allow users to create and edit geometries directly on the map. Point, line, and polygon geometries are supported; I've also added the ability to draw lasso-style freehand polygons with the argument `freehand = TRUE`. Try it out!
+
+```{r}
+mapboxgl() |> 
+  add_draw_control(
+    position = "top-left",
+    freehand = TRUE,  
+    controls = list(
+      combine_features = FALSE,
+      uncombine_features = FALSE
+    )
+  )
+```
+
+A brand-new feature in mapgl is the ability to add your own data to the draw control and edit its geometries! Let's try this out with our Europe NUTS data.
+
+To do this, you'll first add your data as a `source` with the `add_source()` function. You'll then specify that source when initializing the draw control. The color of the features can also be customized.
+
+```{r}
+mapboxgl(
+  bounds = europe_nuts, 
+  config = list(
+    basemap = list(
+      theme = "monochrome"
+    )
+  )
+) |> 
+  add_source(
+    id = "europe", 
+    data = europe_nuts
+  ) |> 
+  add_draw_control(
+    source = "europe",
+    fill_color = "darkgreen",
+    active_color = "magenta"
+  )
+```
+
+Try moving around and deleting / modifying features!
+
+However - what if you want to save your edits? I've *just* added functionality to add a download button to the draw control with `download_button = TRUE`. Clicking the button will prompt you to download your drawing to your computer as a GeoJSON file that you can use in a subsequent R session or even load into your GIS of choice. Let's try it out!
+
+```{r}
+mapboxgl(
+  bounds = europe_nuts, 
+  config = list(
+    basemap = list(
+      theme = "monochrome"
+    )
+  )
+) |> 
+  add_source(
+    id = "europe", 
+    data = europe_nuts
+  ) |> 
+  add_draw_control(
+    source = "europe",
+    fill_color = "darkgreen",
+    active_color = "magenta",
+    download_button = TRUE
+  )
+```
+
+### Comparison maps
+
+We're perhaps saving the best plugin for last here. **mapgl** supports the "compare" plugin to Mapbox and MapLibre, which allows you to set up side-by-side swipe or sync maps to compare two map views. This is extremely useful for visualizing or presenting multiple attributes.
+
+When combined with the new view functions, this makes quick comparisons of your data simple. Let's map both GDP per capita and unemployment rates in Europe, then set up a swipe view between them.
+
+```{r}
+map1 <- maplibre_view(europe_nuts, column = "gdp_per_capita")
+map2 <- maplibre_view(europe_nuts, column = "unemp", palette = viridisLite::inferno, legend_position = "top-right")
+
+compare(map1, map2, swiper_color = "black")
+```
+
+Alternatively, `mode = "sync"` syncs up the two maps side-by-side. Try it out!
+
+# Part 3: Custom cartography
+
+### Overview of layers in mapgl
+
+**mapgl** supports various layer types, each suited for different visualization needs:
+
+-   `add_fill_layer()`: For polygon data (choropleth maps)
+-   `add_line_layer()`: For linear features
+-   `add_circle_layer()`: For point data
+-   `add_symbol_layer()`: For icons and text labels
+-   `add_heatmap_layer()`: For density visualization
+-   `add_fill_extrusion_layer()`: For 3D polygons
+-   `add_raster_layer()`: For rasters, added as an image source
+
+Mapping in Mapbox GL JS and MapLibre GL JS can be quite verbose. While the view functions presented above simplify things, you may want more customization of your mapping without having to do *everything* necessary in the parent JavaScript libraries.
+
+While I've been happy with the overall implementation in **mapgl**, certain things were more difficult than I wanted - such as setting up appropriate color or size breaks for mapping. A new set of cartographic helper functions are now available in the package to help you make maps the way you want.
+
+```{r}
+# Start with a base map
+map <- maplibre(
+  style = maptiler_style("dataviz", variant = "light"),
+  bounds = europe_nuts
+)
+
+# Build the color palette
+palette <- interpolate_palette(
+  data = europe_nuts,
+  column = "unemp", 
+  palette = viridisLite::mako
+)
+
+# Let's take a look at the palette
+print(palette)
+```
+
+Now, we can map our data using the expression helper, and get intuitive values for our legend as well.
+
+```{r}
+map |> 
+  add_fill_layer(
+    id = "unemployment",
+    source = europe_nuts,
+    fill_color = palette$expression,
+    fill_opacity = 0.7
+  ) |> 
+  add_legend(
+    "Unemployment in Europe",
+    values = get_legend_labels(palette, digits = 0, suffix = "%"),
+    colors = get_legend_colors(palette)
+  )
+```
+
+### Binned / stepped mapping
+
+In many cases, you'll want to bin your data instead of using a continuous color palette, which can be very sensitive to outliers. In GIS software, this is very straightforward. In **mapgl**'s parent libraries, however, this can be laborious, requiring the use of a step expression that is not always intuitive to set up.
+
+New step expression helpers make this easier in **mapgl**. You can use `step_equal_interval()` to build an equal-interval step expression; `step_quantile()` to build a quantile expression; and `step_jenks()` to use Jenks natural breaks. Let's set up a stepped map accordingly (making sure to use a categorical legend!):
+
+```{r}
+quantile_expr <- step_quantile(
+  data = europe_nuts,
+  column = "gdp_per_capita",
+  n = 6,
+  palette = viridisLite::turbo
+)
+
+map |> 
+  add_fill_layer(
+    id = "gdp",
+    source = europe_nuts,
+    fill_color = quantile_expr$expression,
+    fill_opacity = 0.7
+  ) |> 
+  add_categorical_legend(
+    legend_title = "GDP per Capita (€)",
+    values = get_legend_labels(quantile_expr, format = "compact", prefix = "€"),
+    colors = get_legend_colors(quantile_expr)
+  )
+```
+
+### Custom pop-ups and tooltips
+
+You've likely noticed that while the view functions give you a basic popup by default, you don't get those popups when building regular **mapgl** maps unless you build them yourselves. The most basic popup (which appears on click) or tooltip (which appears on hover) can be created by passing the name of the column you want shown in your popup as a string.
+
+However, as of **mapgl** version 0.3, the package supports richly customizable tooltips and popups.
+
+For example, the `concat()` and `number_format()` functions can be used together to design formatted popups from your data with minimal fuss.
+
+```{r}
+map |> 
+  add_fill_layer(
+    id = "gdp",
+    source = europe_nuts,
+    fill_color = quantile_expr$expression,
+    fill_opacity = 0.7,
+    popup = concat(
+      "GDP per capita: ",
+      number_format(
+        get_column("gdp_per_capita"), 
+        style = "currency",
+        currency = "EUR",
+        maximum_fraction_digits = 0
+      )
+    )
+  ) |> 
+  add_categorical_legend(
+    legend_title = "GDP per Capita (€)",
+    values = get_legend_labels(quantile_expr, format = "compact", prefix = "€"),
+    colors = get_legend_colors(quantile_expr)
+  )
+```
+
+Pop-ups also accommodate just about any custom HTML you want.
+
+Now you might be asking - I thought I'm using **mapgl** so I *don't* have to write HTML... so how do I know how to format my pop-up correctly? This is one of my favorite use-cases for AI. For example, I can prompt Claude to build me a custom-formatted popup and it'll write the HTML for me. I've found that the more I give it careful instructions, the better. Here's my prompt:
+
+> I'm making a map with the mapgl R package. I want you to design a professional popup that improves on this code:
+>
+> map \|\> add_fill_layer( id = "gdp", source = europe_nuts, fill_color = quantile_expr\$expression, fill_opacity = 0.7, popup = concat( "GDP per capita: ", number_format( get_column("gdp_per_capita"), style = "currency", currency = "EUR", maximum_fraction_digits = 0 ) ) ) \|\> add_categorical_legend( legend_title = "GDP per Capita (€)", values = get_legend_labels(quantile_expr, format = "compact", prefix = "€"), colors = get_legend_colors(quantile_expr) )
+>
+> Here's a glimpse of my data:
+>
+> > glimpse(europe_nuts) Rows: 332 Columns: 5 \$ id \<chr\> "CY00", "CZ01", "CZ02", "CZ03", "CZ04", "CZ05", "CZ06", "CZ07", "CZ08… \$ name \<chr\> "Kypros", "Praha", "Střední Čechy", "Jihozápad", "Severozápad", "Seve… \$ gdp_per_capita \<dbl\> 33800, 62200, 26000, 24900, 20500, 23700, 27400, 23600, 22900, 62100,… \$ unemp \<dbl\> 5.8, 2.1, 1.7, 1.9, 4.1, 2.8, 2.2, 2.5, 3.9, 2.9, 2.9, 2.2, 2.1, 2.3,… \$ geometry \<MULTIPOLYGON \[°\]\> MULTIPOLYGON (((32.3169 34...., MULTIPOLYGON (((14.27182…
+>
+> I want to show all columns, professionally-branded in the popup appropriate for the European Union. Write the popup HTML for me in a format that will work for the mapgl package (given the example above).
+
+And here's my result:
+
+```{r}
+map |> 
+  add_fill_layer(
+    id = "gdp",
+    source = europe_nuts,
+    fill_color = quantile_expr$expression,
+    fill_opacity = 0.7,
+    popup = concat(
+  "<div style='font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif; padding: 16px; min-width: 180px; max-width: 180px;'>",
+  "<h3 style='margin: 0 0 12px 0; color: #003399; font-size: 18px; font-weight: 600; padding-bottom: 8px; border-bottom: 2px solid #FFCC00;'>",
+  get_column("name"),
+  "</h3>",
+  "<div style='display: flex; flex-direction: column; gap: 10px;'>",
+  "<div style='display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background-color: #f8f9fa; border-radius: 4px;'>",
+  "<span style='color: #495057; font-weight: 500; font-size: 14px;'>GDP per capita</span>",
+  "<span style='color: #003399; font-weight: 600; font-size: 16px;'>",
+  number_format(
+    get_column("gdp_per_capita"), 
+    style = "currency",
+    currency = "EUR",
+    maximum_fraction_digits = 0
+  ),
+  "</span>",
+  "</div>",
+  "<div style='display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background-color: #f8f9fa; border-radius: 4px;'>",
+  "<span style='color: #495057; font-weight: 500; font-size: 14px;'>Unemployment rate</span>",
+  "<span style='color: #dc3545; font-weight: 600;'>",
+  number_format(
+    get_column("unemp"), 
+    maximum_fraction_digits = 1
+  ),
+  "%",
+  "</span>",
+  "</div>",
+  "<div style='margin-top: 8px; padding-top: 8px; border-top: 1px solid #e9ecef;'>",
+  "<span style='color: #6c757d; font-size: 12px;'>Region ID: ", 
+  get_column("id"),
+  "</span>",
+  "</div>",
+  "</div>",
+  "</div>"
+)
+) |> 
+  add_categorical_legend(
+    legend_title = "GDP per Capita (€)",
+    values = get_legend_labels(quantile_expr, format = "compact", prefix = "€"),
+    colors = get_legend_colors(quantile_expr)
+  )
+```
+
+Now, does this work on the first try the exact way you want? Of course not. I'll typically do a little back and forth with Claude to get it right; I'll edit myself as much as I know how, and if something just won't work, I'll send a screenshot of the popup to Claude which often will solve it.
+
+### Customizing legend appearance
+
+To put the finishing touches on your map, **mapgl** also supports customizable legends with the `legend_style()` function.
+
+```{r}
+eu_legend_style <- legend_style(
+  # Clean white background with subtle transparency
+  background_color = "#ffffff",
+  background_opacity = 0.95,
+  
+  # EU blue border matching the popup header
+  border_color = "#003399",
+  border_width = 2,
+  border_radius = 8,
+  
+  # Professional typography matching the popup
+  text_color = "#495057",
+  text_size = 13,
+  title_color = "#003399",
+  title_size = 16,
+  font_family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+  title_font_weight = "600",
+  font_weight = "500",
+  
+  # Yellow accent borders on elements (EU yellow)
+  element_border_color = "#FFCC00",
+  element_border_width = 2,
+  
+  # Subtle shadow for depth
+  shadow = TRUE,
+  shadow_color = "rgba(0, 51, 153, 0.15)",  # EU blue shadow
+  shadow_size = 8,
+  
+  # Comfortable padding
+  padding = 16
+)
+
+map |> 
+  add_fill_layer(
+    id = "gdp",
+    source = europe_nuts,
+    fill_color = quantile_expr$expression,
+    fill_opacity = 0.7,
+    popup = concat(
+      "GDP per capita: ",
+      number_format(
+        get_column("gdp_per_capita"), 
+        style = "currency",
+        currency = "EUR",
+        maximum_fraction_digits = 0
+      )
+    )
+  ) |> 
+  add_categorical_legend(
+    legend_title = "GDP per Capita (€)",
+    values = get_legend_labels(quantile_expr, format = "compact", prefix = "€"),
+    colors = get_legend_colors(quantile_expr),
+    style = eu_legend_style
+  )
+```
+
+# Bonus: Mapping massive datasets with PMTiles
+
+A question I've gotten a lot from users: how can I map massive datasets, numbering in the tens of millions of features, with mapgl? While WebGL mapping can squeeze more performance out of your data than Leaflet can, it's still difficult for it to ingest a 10 million+ feature GeoJSON file and display it performantly.
+
+However, this *is* possible with one of my favorite technologies, PMTiles. With PMTiles, you can store massive datasets as *a single file* and connect to them as if they were a tile server. PMTiles is supported as a source for both MapLibre and Mapbox maps. Check out how we can performantly visualize 60 million points of interest from Overture Maps:
+
+```{r}
+maplibre(style = maptiler_style("basic", variant = "dark")) |>
+  set_projection("globe") |>
+  add_pmtiles_source(
+    id = "places-source",
+    url = "https://overturemaps-tiles-us-west-2-beta.s3.amazonaws.com/2025-06-25/places.pmtiles"
+  ) |>
+  add_circle_layer(
+    id = "places-layer",
+    source = "places-source",
+    source_layer = "place",
+    circle_color = "cyan",
+    circle_opacity = 0.7,
+    circle_radius = 4,
+    tooltip = concat(
+      "Name: ",
+      get_column("@name"),
+      "<br>Confidence: ",
+      number_format(get_column("confidence"), maximum_fraction_digits = 2)
+    )
+  )
+```
+
+To use your own massive datasets, here are the steps I follow:
+
+1.  Convert your data to PMTiles format using tippecanoe
+2.  Host the PMTiles file on a static server (S3 and GitHub Pages work great)
+3.  Reference it in mapgl using `add_pmtiles_source()`, then style away!
+
+This approach allows you to visualize millions of features without overwhelming the browser or your R session. It's incredible!
+
+## Wrapping up
+
+We've gone over a ton of content in today's workshop - and there is a lot left to learn! Be sure to check out the companion workshop on high-performance web apps with mapgl and Shiny.
+
+If you are looking for more, please reach out for a custom training on mapgl tailored to your organization - I'd be happy to chat!
